@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>검색 및 등록</title>
+
+    <!-- ag-Grid 라이브러리 추가 -->
+<!--    <link href="https://cdn.jsdelivr.net/npm/ag-grid-community@34.0.2/styles/ag-grid.min.css" rel="stylesheet" />-->
+    <link rel="stylesheet" href="https://unpkg.com/ag-grid-community/dist/styles/ag-grid.css">
+    <link rel="stylesheet" href="https://unpkg.com/ag-grid-community/dist/styles/ag-theme-alpine.css">
+    <script src="https://unpkg.com/ag-grid-community/dist/ag-grid-community.min.noStyle.js"></script>
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+    <style>
+        body {
+            font-family: sans-serif;
+        }
+
+        #dialog {
+            display: none;
+            position: fixed;
+            top: 30%;
+            left: 40%;
+            padding: 20px;
+            background-color: #fff;
+            border: 1px solid #888;
+            box-shadow: 0 0 10px rgba(0,0,0,0.3);
+            z-index: 9999;
+        }
+
+        #dialog-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.4);
+            z-index: 9998;
+        }
+
+        .ag-theme-alpine {
+            height: 400px;
+            width: 100%;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<h2>계정 정보</h2>
+<hr>
+<button id="srch_btn">조회</button>
+<button id="reg_btn">등록</button>
+
+<!-- ag-Grid 영역 -->
+<div id="myGrid" class="ag-theme-alpine"></div>
+
+<!-- 다이얼로그 삽입 위치 -->
+<div id="dialog-container"></div>
+
+<script>
+
+    let gridOptions;
+    var gridApi;
+
+    $(document).ready(function(){
+
+        // ag-Grid 컬럼 정의
+        const columnDefs = [
+            { headerName: "ID", field: "id", width: 80 },
+            { headerName: "사용자이름", field: "username" },
+            { headerName: "상호명", field: "company" },
+            { headerName: "대표자명", field: "ceo" },
+            { headerName: "이메일", field: "email" },
+            { headerName: "휴대폰 번호", field: "phone" },
+            { headerName: "사업자번호", field: "bizNo" },
+            { headerName: "비밀번호 초기화", field: "resetCode", cellRenderer: function(params){
+                    return `<button class="pw_reset" data-info="${params.value}">비밀번호 초기화 </button>`;
+                }},
+            {
+                headerName: "상세정보", field: "details", cellRenderer: function(params) {
+                    return `<button class="detail-btn" data-info="${params.value}">상세보기</button>`;
+                }
+            }
+        ];
+
+        const rowData = [
+            {
+                id: 1,
+                username: "홍길동",
+                company: "길동상사",
+                ceo: "홍길동",
+                email: "hong@example.com",
+                phone: "010-1234-5678",
+                bizNo: "123-45-67890",
+                resetCode: "RESET123",
+                details: "홍길동 상세정보"
+            },
+            {
+                id: 2,
+                username: "김영희",
+                company: "영희무역",
+                ceo: "김영희",
+                email: "kim@example.com",
+                phone: "010-9876-5432",
+                bizNo: "987-65-43210",
+                resetCode: "RESET456",
+                details: "김영희 상세정보"
+            }
+        ];
+
+        gridOptions = {
+            columnDefs: columnDefs,
+            rowData: rowData,
+            defaultColDef: {
+                sortable: true,
+                filter: true,
+                resizable: true
+            }
+        };
+
+        var eGridDiv = document.getElementById("myGrid");
+        gridApi = agGrid.createGrid(eGridDiv, gridOptions);
+
+
+        $('#myGrid').on('click', '.pw_reset', function(){
+            const userId = $(this).data('id');
+            const username = $(this).data('username');
+
+            const confirmCode = prompt(`${username}님의 비밀번호를 초기화 하시겠습니까?\n초기화 코드를 입력하세요:`);
+            var data = {};
+            data.userId=userId;
+            data.username=username;
+            if (confirmCode !== null && confirmCode.trim() !== "") {
+                sendAjax('POST', 'account', data, function(response){
+                    alert('정상처리 되었습니다.');
+                    console.log(response);
+                });
+
+            } else {
+                alert("초기화 코드 입력이 취소되었거나 비어 있습니다.");
+            }
+        });
+        // 등록 버튼 클릭 시 reg.html 로드 후 다이얼로그 표시
+        $('#reg_btn').on('click', function(){
+            $('#dialog-container').load('reg.html', function() {
+                initializeDialogEvents();
+                showDialog();
+            });
+        });
+
+        // 상세보기 버튼 클릭 시 edit.html 로드 후 다이얼로그 표시
+        $('#myGrid').on('click', '.detail-btn', function(){
+            const info = $(this).data('info'); // 필요 시 데이터 전달
+            $('#dialog-container').load('edit.html', function() {
+                initializeDialogEvents();
+                showDialog();
+
+                // 예시: 상세정보 다이얼로그에 info 넣기
+                $('#dialog .content').text(info);
+            });
+        });
+
+        $('#srch_btn').on('click',function(){
+            createGrid();
+        });
+
+        function showDialog() {
+            $('#dialog-overlay').show();
+            $('#dialog').show();
+        }
+
+        function hideDialog() {
+            $('#dialog').hide();
+            $('#dialog-overlay').hide();
+        }
+
+        function initializeDialogEvents() {
+            $('#dialog-container').on('click', '#close_btn, #dialog-overlay', function () {
+                hideDialog();
+            });
+        }
+
+
+    });
+
+    function createGrid(){
+
+
+        const newData = [
+            {
+                id: 1,
+                username: "홍11",
+                company: "길동상사",
+                ceo: "홍길동",
+                email: "hong@example.com",
+                phone: "010-1234-5678",
+                bizNo: "123-45-67890",
+                resetCode: "RESET123",
+                details: "홍길동 상세정보"
+            },
+            {
+                id: 2,
+                username: "김11",
+                company: "영희무역",
+                ceo: "김영희",
+                email: "kim@example.com",
+                phone: "010-9876-5432",
+                bizNo: "987-65-43210",
+                resetCode: "RESET456",
+                details: "김영희 상세정보"
+            }
+        ];
+
+        console.log(gridOptions);
+        gridApi.updateGridOptions({rowData : newData});
+    }
+
+    function sendAjax(type, service ,data, _callback) {
+        $.ajax({
+            url: '/api/main', // 실제 API 주소로 교체
+            type: type,
+            contentType: 'application/json',
+            data: JSON.stringify({
+                service: service,
+                payload: data
+            }),
+            success: function(response) {
+                if (_callback) _callback(response);
+            },
+            error: function(xhr) {
+                const errMsg = xhr.responseJSON?.message || "오류가 발생했습니다.";
+                alert("초기화 실패: " + errMsg);
+            }
+        });
+    }
+</script>
+
+
+
+</body>
+</html>
