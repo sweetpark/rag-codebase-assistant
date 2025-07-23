@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="lab.demo_ai.AccountRepository">
+
+    <select id="sltAccountInfo" parameterType="map" resultType="map">
+        SELECT id, username, company_name, ceo_name, email, phone, biz_no
+        FROM member
+    </select>
+
+    <select id="sltAccountOne" parameterType="map" resultType="map">
+        SELECT id, username, company_name, ceo_name, email, phone, biz_no
+        FROM member
+        WHERE id = #{id}
+    </select>
+
+    <insert id="istAccount" parameterType="map">
+        INSERT INTO member (id, username, company_name, ceo_name, email, phone, biz_no)
+               VALUES (#{id}, #{username}, #{companyNm}, #{ceoNm}, #{email}, #{phone}, #{biz_no})
+    </insert>
+
+    <update id="uptAccount" parameterType="map">
+        UPDATE member
+        SET
+            username = #{username},
+            company_name = #{companyNm},
+            ceo_name = #{ceoNm},
+            email = #{email},
+            phone = #{phone},
+            biz_no = #{biz_no}
+    </update>
+
+    <update id="resetPw" parameterType="map">
+        UPDATE member
+        SET
+            password = '1111'
+        WHERE id = #{id}
+    </update>
+
+    <select id="dupCheck" parameterType="map" resultType="map">
+        SELECT COUNT(*) AS CNT
+        FROM member
+        WHERE id=#{id}
+    </select>
+</mapper>

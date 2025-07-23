@@ -1,6 +1,151 @@
 <!-- reg.html -->
 <div id="dialog-overlay"></div>
 <div id="dialog">
-    <p>등록 다이얼로그입니다.</p>
+    <h2><span id="dialog_account_title"></span></h2>
+
+    <table border ="1">
+        <th colspan="100%">계정 설정</th>
+        <tr>
+            <th>아이디</th>
+            <td>
+                <input type="text" id="id" placeholder="아이디"/>
+            </td>
+            <th>사용자이름</th>
+            <td>
+                <input type="text" id="username" placeholder="사용자 이름" />
+            </td>
+        </tr>
+        <tr>
+            <th>상호명</th>
+            <td>
+                <input type="text" id="companyNm" placeholder="상호명" />
+            </td>
+            <th>대표자명</th>
+            <td>
+                <input type="text" id="ceoNm" placeholder="대표자명" />
+            </td>
+        </tr>
+        <tr>
+            <th>E-mail</th>
+            <td>
+                <input type="text" id="email" placeholder="이메일" />
+            </td>
+            <th>휴대폰 번호</th>
+            <td>
+                <input type="text" id="phone" placeholder="휴대폰 번호" />
+            </td>
+        </tr>
+        <tr>
+            <th>사업자번호</th>
+            <td>
+                <input type="text" id="biz_no" placeholder="사업자 번호" />
+            </td>
+        </tr>
+    </table>
+
+
+
+
+    <button id="dialog_edit_btn">수정</button>
+    <button id="dialog_reg_btn">등록</button>
     <button id="close_btn">닫기</button>
 </div>
+
+<script>
+
+    $(document).ready(function(){
+
+
+        if(EDIT_FLG){
+            $('#dialog_account_title').text('계정 수정')
+            $('#dialog_edit_btn').show();
+            $('#dialog_reg_btn').hide();
+            $('#id').attr('disabled', true);
+            loadData();
+        }else{
+            $('#dialog_account_title').text('계정 등록')
+            $('#dialog_edit_btn').hide();
+            $('#dialog_reg_btn').show();
+        }
+
+        $("#dialog_reg_btn").on('click', function(){
+            var data ={};
+            data.id=$('#id').val();
+            data.username=$('#username').val();
+            data.companyNm=$('#companyNm').val();
+            data.ceoNm=$('#ceoNm').val();
+            data.email=$('#email').val();
+            data.phone=$('#phone').val();
+            data.biz_no=$('#biz_no').val();
+            data.oper='regist';
+
+            if(data.id == null || data.id==''){
+                alert("id 값은 비어있을 수 없습니다.");
+                return;
+            }else{
+                var dupCheck ={};
+                dupCheck.oper="dupCheck";
+                dupCheck.id=data.id;
+                sendAjax('POST', 'account', dupCheck, function(result){
+                    if(result.data.CNT > 0){
+                        alert("id가 중복됩니다. 다시 입력해주세요.");
+                    }else{
+                        sendAjax('POST', 'account', data, function(response){
+                            console.log(response);
+
+                            if(response.res_cd == '0000'){
+                                alert("정상 등록되었습니다.");
+                                $('#srch_btn').trigger('click');
+                                $('#close_btn').trigger('click');
+                            }else{
+                                alert(response.res_msg);
+                            }
+                        });
+                    }
+                });
+            }
+        });
+
+
+
+        $("#dialog_edit_btn").on('click', function(){
+            var data ={};
+            data.username=$('#username').val();
+            data.companyNm=$('#companyNm').val();
+            data.ceoNm=$('#ceoNm').val();
+            data.email=$('#email').val();
+            data.phone=$('#phone').val();
+            data.biz_no=$('#biz_no').val();
+            data.oper='edit';
+            sendAjax('POST', 'account', data, function(response){
+                console.log(response);
+
+                if(response.res_cd == '0000'){
+                    alert("정상 수정되었습니다.");
+                    $('#srch_btn').trigger('click');
+                    $('#close_btn').trigger('click');
+
+                }else{
+                    alert(response.res_msg);
+                }
+            });
+        });
+
+        function loadData(){
+            var data = {};
+            data.oper="readOne"
+            data.id =EDIT_ID;
+            sendAjax("POST", "account", data, function(result){
+                $('#id').val(EDIT_ID);
+                $('#username').val(result.data.username);
+                $('#companyNm').val(result.data.company_name);
+                $('#ceoNm').val(result.data.ceo_name);
+                $('#email').val(result.data.email);
+                $('#phone').val(result.data.phone);
+                $('#biz_no').val(result.data.biz_no);
+            });
+        }
+    });
+
+
+</script>

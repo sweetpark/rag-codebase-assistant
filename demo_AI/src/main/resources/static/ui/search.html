@@ -62,6 +62,8 @@
 
     let gridOptions;
     var gridApi;
+    var EDIT_FLG = false;
+    var EDIT_ID = null;
 
     $(document).ready(function(){
 
@@ -69,45 +71,22 @@
         const columnDefs = [
             { headerName: "ID", field: "id", width: 80 },
             { headerName: "사용자이름", field: "username" },
-            { headerName: "상호명", field: "company" },
-            { headerName: "대표자명", field: "ceo" },
+            { headerName: "상호명", field: "company_name" },
+            { headerName: "대표자명", field: "ceo_name" },
             { headerName: "이메일", field: "email" },
             { headerName: "휴대폰 번호", field: "phone" },
-            { headerName: "사업자번호", field: "bizNo" },
-            { headerName: "비밀번호 초기화", field: "resetCode", cellRenderer: function(params){
-                    return `<button class="pw_reset" data-info="${params.value}">비밀번호 초기화 </button>`;
+            { headerName: "사업자번호", field: "biz_no" },
+            { headerName: "비밀번호 초기화", field: "id", cellRenderer: function(params){
+                    return `<button class="pw_reset" data-info="${params.data.id}">비밀번호 초기화 </button>`;
                 }},
             {
-                headerName: "상세정보", field: "details", cellRenderer: function(params) {
-                    return `<button class="detail-btn" data-info="${params.value}">상세보기</button>`;
+                headerName: "상세정보", field: "id", cellRenderer: function(params) {
+                    return `<button class="detail-btn" data-info="${params.data.id}">상세보기</button>`;
                 }
             }
         ];
 
-        const rowData = [
-            {
-                id: 1,
-                username: "홍길동",
-                company: "길동상사",
-                ceo: "홍길동",
-                email: "hong@example.com",
-                phone: "010-1234-5678",
-                bizNo: "123-45-67890",
-                resetCode: "RESET123",
-                details: "홍길동 상세정보"
-            },
-            {
-                id: 2,
-                username: "김영희",
-                company: "영희무역",
-                ceo: "김영희",
-                email: "kim@example.com",
-                phone: "010-9876-5432",
-                bizNo: "987-65-43210",
-                resetCode: "RESET456",
-                details: "김영희 상세정보"
-            }
-        ];
+        const rowData = [];
 
         gridOptions = {
             columnDefs: columnDefs,
@@ -124,35 +103,40 @@
 
 
         $('#myGrid').on('click', '.pw_reset', function(){
-            const userId = $(this).data('id');
-            const username = $(this).data('username');
+            const userId = $(this).data('info');
+            const confirmCode = prompt(`비밀번호를 초기화 하시겠습니까?\n초기화 코드를 입력하세요:`);
 
-            const confirmCode = prompt(`${username}님의 비밀번호를 초기화 하시겠습니까?\n초기화 코드를 입력하세요:`);
-            var data = {};
-            data.userId=userId;
-            data.username=username;
-            if (confirmCode !== null && confirmCode.trim() !== "") {
-                sendAjax('POST', 'account', data, function(response){
-                    alert('정상처리 되었습니다.');
-                    console.log(response);
-                });
+            if(confirmCode != '0000'){
+                alert("코드가 맞지 않습니다.");
+            }else{
+                var data = {};
+                data.id=userId;
+                data.oper="reset";
+                if (confirmCode !== null && confirmCode.trim() !== "") {
+                    sendAjax('POST', 'account', data, function(response){
+                        alert('정상처리 되었습니다.');
+                        console.log(response);
+                    });
 
-            } else {
-                alert("초기화 코드 입력이 취소되었거나 비어 있습니다.");
+                } else {
+                    alert("초기화 코드 입력이 취소되었거나 비어 있습니다.");
+                }
             }
         });
         // 등록 버튼 클릭 시 reg.html 로드 후 다이얼로그 표시
         $('#reg_btn').on('click', function(){
+            EDIT_FLG=false;
             $('#dialog-container').load('reg.html', function() {
                 initializeDialogEvents();
                 showDialog();
             });
         });
 
-        // 상세보기 버튼 클릭 시 edit.html 로드 후 다이얼로그 표시
+
         $('#myGrid').on('click', '.detail-btn', function(){
-            const info = $(this).data('info'); // 필요 시 데이터 전달
-            $('#dialog-container').load('edit.html', function() {
+            EDIT_FLG=true;
+            EDIT_ID=$(this).data('info');
+            $('#dialog-container').load('reg.html', function() {
                 initializeDialogEvents();
                 showDialog();
 
@@ -186,34 +170,14 @@
 
     function createGrid(){
 
+        var data = {};
+        data.oper="read";
 
-        const newData = [
-            {
-                id: 1,
-                username: "홍11",
-                company: "길동상사",
-                ceo: "홍길동",
-                email: "hong@example.com",
-                phone: "010-1234-5678",
-                bizNo: "123-45-67890",
-                resetCode: "RESET123",
-                details: "홍길동 상세정보"
-            },
-            {
-                id: 2,
-                username: "김11",
-                company: "영희무역",
-                ceo: "김영희",
-                email: "kim@example.com",
-                phone: "010-9876-5432",
-                bizNo: "987-65-43210",
-                resetCode: "RESET456",
-                details: "김영희 상세정보"
-            }
-        ];
+        sendAjax("POST", "account", data,  function(result){
+            console.log(gridOptions);
+            gridApi.updateGridOptions({rowData : result.data});
+        });
 
-        console.log(gridOptions);
-        gridApi.updateGridOptions({rowData : newData});
     }
 
     function sendAjax(type, service ,data, _callback) {
