@@ -26,7 +26,7 @@ public class MainController {
         Map<String,Object> resultMap = new HashMap<>();
 
         log.info("inParam : " + inParam);
-        baseTx account = (baseTx) ac.getBean("account");
+        baseTx account = (baseTx) ac.getBean(inParam.get("service").toString());
         Map<String, Object> param = (Map<String, Object>) inParam.get("payload");
         resultMap = account.execute(param);
 
