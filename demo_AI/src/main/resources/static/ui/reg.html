@@ -8,37 +8,37 @@
         <tr>
             <th>아이디</th>
             <td>
-                <input type="text" id="id" placeholder="아이디"/>
+                <input type="text" id="id" placeholder="아이디" data-field="id"/>
             </td>
             <th>사용자이름</th>
             <td>
-                <input type="text" id="username" placeholder="사용자 이름" />
+                <input type="text" id="username" placeholder="사용자 이름" data-field="username" />
             </td>
         </tr>
         <tr>
             <th>상호명</th>
             <td>
-                <input type="text" id="companyNm" placeholder="상호명" />
+                <input type="text" id="companyNm" placeholder="상호명" data-field="companyNm" />
             </td>
             <th>대표자명</th>
             <td>
-                <input type="text" id="ceoNm" placeholder="대표자명" />
+                <input type="text" id="ceoNm" placeholder="대표자명" data-field="ceoNm" />
             </td>
         </tr>
         <tr>
             <th>E-mail</th>
             <td>
-                <input type="text" id="email" placeholder="이메일" />
+                <input type="text" id="email" placeholder="이메일" data-field="email" />
             </td>
             <th>휴대폰 번호</th>
             <td>
-                <input type="text" id="phone" placeholder="휴대폰 번호" />
+                <input type="text" id="phone" placeholder="휴대폰 번호" data-field="phone" />
             </td>
         </tr>
         <tr>
             <th>사업자번호</th>
             <td>
-                <input type="text" id="biz_no" placeholder="사업자 번호" />
+                <input type="text" id="biz_no" placeholder="사업자 번호" data-field="biz_no" />
             </td>
         </tr>
     </table>
@@ -46,8 +46,10 @@
 
 
 
-    <button id="dialog_edit_btn">수정</button>
-    <button id="dialog_reg_btn">등록</button>
+    <button id="dialog_edit_btn" data-service="account" data-oper="edit">수정</button>
+    <button id="dialog_reg_btn" data-service="account" data-oper="regist">등록</button>
+    <button id="dup_btn" data-service="account" data-oper="dupCheck" style="display:none"></button>
+    <button id="load_btn" data-service="account" data-oper="readOne" style="display:none"></button>
     <button id="close_btn">닫기</button>
 </div>
 
@@ -61,89 +63,92 @@
             $('#dialog_edit_btn').show();
             $('#dialog_reg_btn').hide();
             $('#id').attr('disabled', true);
-            loadData();
+            $('#load_btn')
+                .data('payload', {id:EDIT_ID})   // dupCheck 에도 동일한 payload 사용
+                .trigger('click');
         }else{
             $('#dialog_account_title').text('계정 등록')
             $('#dialog_edit_btn').hide();
             $('#dialog_reg_btn').show();
         }
 
-        $("#dialog_reg_btn").on('click', function(){
-            var data ={};
-            data.id=$('#id').val();
-            data.username=$('#username').val();
-            data.companyNm=$('#companyNm').val();
-            data.ceoNm=$('#ceoNm').val();
-            data.email=$('#email').val();
-            data.phone=$('#phone').val();
-            data.biz_no=$('#biz_no').val();
-            data.oper='regist';
+        $(document)
+            .off('click', '#load_btn, #dup_btn, #dialog_reg_btn, #dialog_edit_btn');
 
-            if(data.id == null || data.id==''){
-                alert("id 값은 비어있을 수 없습니다.");
+        $(document).on('click', '#load_btn, #dup_btn, #dialog_reg_btn, #dialog_edit_btn', function() {
+            const btn     = $(this);
+            const service = btn.data('service');   // "account"
+            const oper    = btn.data('oper');      // "dupCheck", "regist", or "edit"
+            // data-payload 가 있으면 그걸 쓰고, 없으면 폼 전체 수집
+            const payload = btn.data('payload') || collectPayload();
+
+            if (oper === 'regist') {
+                // 등록 버튼 클릭: 먼저 중복 체크
+                // payload 에 already id 포함되어 있음
+                $('#dup_btn')
+                    .data('payload', payload)   // dupCheck 에도 동일한 payload 사용
+                    .trigger('click');
                 return;
-            }else{
-                var dupCheck ={};
-                dupCheck.oper="dupCheck";
-                dupCheck.id=data.id;
-                sendAjax('POST', 'account', dupCheck, function(result){
-                    if(result.data.CNT > 0){
-                        alert("id가 중복됩니다. 다시 입력해주세요.");
-                    }else{
-                        sendAjax('POST', 'account', data, function(response){
-                            console.log(response);
+            }
 
-                            if(response.res_cd == '0000'){
-                                alert("정상 등록되었습니다.");
-                                $('#srch_btn').trigger('click');
-                                $('#close_btn').trigger('click');
-                            }else{
-                                alert(response.res_msg);
-                            }
+
+            if (oper === 'dupCheck') {
+                // dup_btn 클릭 or 강제 트리거 시
+                payload.oper=oper;
+                sendAjax('POST', service, payload, function(res) {
+
+                    if (res.data.CNT > 0) {
+                        alert("id가 중복됩니다. 다시 입력해주세요.");
+                    } else {
+                        // 중복 없으면 실제 등록
+                        payload.oper = 'regist';
+                        sendAjax('POST', service, payload, function(response){
+                            handleResponse(response);
                         });
                     }
                 });
+                return;
             }
+
+            // edit 등 그 외 oper
+            if(oper === 'readOne'){
+                payload.oper = oper;
+                sendAjax("POST", "account", payload, function(result){
+                    $('#id').val(EDIT_ID);
+                    $('#username').val(result.data.username);
+                    $('#companyNm').val(result.data.company_name);
+                    $('#ceoNm').val(result.data.ceo_name);
+                    $('#email').val(result.data.email);
+                    $('#phone').val(result.data.phone);
+                    $('#biz_no').val(result.data.biz_no);
+                });
+            }else{
+                payload.oper = oper;
+                sendAjax('POST', service, payload, function(response){
+                    handleResponse(response);
+                });
+            }
+
         });
 
-
-
-        $("#dialog_edit_btn").on('click', function(){
-            var data ={};
-            data.username=$('#username').val();
-            data.companyNm=$('#companyNm').val();
-            data.ceoNm=$('#ceoNm').val();
-            data.email=$('#email').val();
-            data.phone=$('#phone').val();
-            data.biz_no=$('#biz_no').val();
-            data.oper='edit';
-            sendAjax('POST', 'account', data, function(response){
-                console.log(response);
-
-                if(response.res_cd == '0000'){
-                    alert("정상 수정되었습니다.");
-                    $('#srch_btn').trigger('click');
-                    $('#close_btn').trigger('click');
-
-                }else{
-                    alert(response.res_msg);
-                }
+        function collectPayload(){
+            const payload = {};
+            $('#dialog').find('[data-field]').each(function(){
+                const key = $(this).data('field');
+                payload[key] = $(this).val();
             });
-        });
 
-        function loadData(){
-            var data = {};
-            data.oper="readOne"
-            data.id =EDIT_ID;
-            sendAjax("POST", "account", data, function(result){
-                $('#id').val(EDIT_ID);
-                $('#username').val(result.data.username);
-                $('#companyNm').val(result.data.company_name);
-                $('#ceoNm').val(result.data.ceo_name);
-                $('#email').val(result.data.email);
-                $('#phone').val(result.data.phone);
-                $('#biz_no').val(result.data.biz_no);
-            });
+            return payload;
+        }
+
+        function handleResponse(response) {
+            if (response.res_cd === '0000') {
+                alert("정상 처리되었습니다.");
+                $('#srch_btn').trigger('click');
+                $('#close_btn').trigger('click');
+            } else {
+                alert(response.res_msg);
+            }
         }
     });
 
