@@ -5,7 +5,7 @@
     <title>검색 및 등록</title>
 
     <!-- ag-Grid 라이브러리 추가 -->
-<!--    <link href="https://cdn.jsdelivr.net/npm/ag-grid-community@34.0.2/styles/ag-grid.min.css" rel="stylesheet" />-->
+    <!--    <link href="https://cdn.jsdelivr.net/npm/ag-grid-community@34.0.2/styles/ag-grid.min.css" rel="stylesheet" />-->
     <link rel="stylesheet" href="https://unpkg.com/ag-grid-community/dist/styles/ag-grid.css">
     <link rel="stylesheet" href="https://unpkg.com/ag-grid-community/dist/styles/ag-theme-alpine.css">
     <script src="https://unpkg.com/ag-grid-community/dist/ag-grid-community.min.noStyle.js"></script>
@@ -49,8 +49,8 @@
 
 <h2>계정 정보</h2>
 <hr>
-<button id="srch_btn">조회</button>
-<button id="reg_btn">등록</button>
+<button id="srch_btn" data-service="account" data-oper="read">조회</button>
+<button id="reg_btn" data-service="account" data-oper="create" data-dialog="reg.html">등록</button>
 
 <!-- ag-Grid 영역 -->
 <div id="myGrid" class="ag-theme-alpine"></div>
@@ -67,6 +67,7 @@
 
     $(document).ready(function(){
 
+        // ########################## [GRID 정의] #####################################
         // ag-Grid 컬럼 정의
         const columnDefs = [
             { headerName: "ID", field: "id", width: 80 },
@@ -77,11 +78,11 @@
             { headerName: "휴대폰 번호", field: "phone" },
             { headerName: "사업자번호", field: "biz_no" },
             { headerName: "비밀번호 초기화", field: "id", cellRenderer: function(params){
-                    return `<button class="pw_reset" data-info="${params.data.id}">비밀번호 초기화 </button>`;
+                    return `<button class="pw_reset" data-service="account" data-oper="reset" data-id="${params.data.id}">비밀번호 초기화 </button>`;
                 }},
             {
                 headerName: "상세정보", field: "id", cellRenderer: function(params) {
-                    return `<button class="detail-btn" data-info="${params.data.id}">상세보기</button>`;
+                    return `<button class="detail-btn" data-service="account" data-oper="detail" data-id="${params.data.id}">상세보기</button>`;
                 }
             }
         ];
@@ -101,28 +102,8 @@
         var eGridDiv = document.getElementById("myGrid");
         gridApi = agGrid.createGrid(eGridDiv, gridOptions);
 
+        // ########################## [ 동적 스크립트 작성 ] #####################################
 
-        $('#myGrid').on('click', '.pw_reset', function(){
-            const userId = $(this).data('info');
-            const confirmCode = prompt(`비밀번호를 초기화 하시겠습니까?\n초기화 코드를 입력하세요:`);
-
-            if(confirmCode != '0000'){
-                alert("코드가 맞지 않습니다.");
-            }else{
-                var data = {};
-                data.id=userId;
-                data.oper="reset";
-                if (confirmCode !== null && confirmCode.trim() !== "") {
-                    sendAjax('POST', 'account', data, function(response){
-                        alert('정상처리 되었습니다.');
-                        console.log(response);
-                    });
-
-                } else {
-                    alert("초기화 코드 입력이 취소되었거나 비어 있습니다.");
-                }
-            }
-        });
         // 등록 버튼 클릭 시 reg.html 로드 후 다이얼로그 표시
         $('#reg_btn').on('click', function(){
             EDIT_FLG=false;
@@ -132,21 +113,32 @@
             });
         });
 
+        $(document).on('click','#srch_btn, .pw_reset, .detail-btn', function(){
+            const btn = $(this)
+            const service = btn.data('service');
+            const oper = btn.data('oper');
+            const id = btn.data('id');
 
-        $('#myGrid').on('click', '.detail-btn', function(){
-            EDIT_FLG=true;
-            EDIT_ID=$(this).data('info');
-            $('#dialog-container').load('reg.html', function() {
-                initializeDialogEvents();
-                showDialog();
+            const payload = {oper : oper};
+            if(id !== undefined) payload.id = id;
 
-                // 예시: 상세정보 다이얼로그에 info 넣기
-                $('#dialog .content').text(info);
+            sendAjax('POST', service, payload, function(res){
+                if(oper === 'read'){
+                    gridApi.updateGridOptions({rowData: res.data});
+                }else if(oper === 'reset'){
+                    alert('비밀번호 초기화 완료');
+                }else if(oper === 'detail'){
+                    EDIT_FLG=true;
+                    EDIT_ID=id;
+                    $('#dialog-container').load('reg.html', function() {
+                        initializeDialogEvents();
+                        showDialog();
+
+                        // 예시: 상세정보 다이얼로그에 info 넣기
+                        $('#dialog .content').text(id);
+                    });
+                }
             });
-        });
-
-        $('#srch_btn').on('click',function(){
-            createGrid();
         });
 
         function showDialog() {
@@ -165,21 +157,7 @@
             });
         }
 
-
     });
-
-    function createGrid(){
-
-        var data = {};
-        data.oper="read";
-
-        sendAjax("POST", "account", data,  function(result){
-            console.log(gridOptions);
-            gridApi.updateGridOptions({rowData : result.data});
-        });
-
-    }
-
     function sendAjax(type, service ,data, _callback) {
         $.ajax({
             url: '/api/main', // 실제 API 주소로 교체
@@ -197,10 +175,11 @@
                 alert("초기화 실패: " + errMsg);
             }
         });
+
+
     }
+
 </script>
-
-
 
 </body>
 </html>
