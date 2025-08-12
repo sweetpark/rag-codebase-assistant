@@ -21,6 +21,6 @@ def generate_embeddings(input_path, output_path, model="text-embedding-ada-002")
 if __name__ == "__main__":
     import sys
     if len(sys.argv) != 3:
-        print("Usage: python3 chatgpt_ex.py ./demo_AI/output/chunk.jsonl ./demo_AI/output/output_embeddings.jsonl")
+        print("Usage: python3 chatgpt_ex.py ./demo_AI/output/old_rag/chunk.jsonl ./demo_AI/output/old_rag/output_embeddings.jsonl")
         sys.exit(1)
     generate_embeddings(sys.argv[1], sys.argv[2])
