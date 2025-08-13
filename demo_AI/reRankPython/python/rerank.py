@@ -1,8 +1,11 @@
 """
-RAG pipeline (OpenAI-only, single-command)
+RAG pipeline (OpenAI-only, single-command) with LLM re-ranking & early-stop
+
 - Looks for ./output/new_chunk.jsonl (or new_chunk.json)
 - If FAISS/metas not found, it builds them under ./output
-- Then retrieves with OpenAI embeddings and generates HTML/Java/XML files into ./output
+- Retrieves with OpenAI embeddings, optionally re-ranks with LLM (0~3)
+- Early-stops when max embedding similarity < --sim-threshold
+- Generates HTML/Java/XML files into ./output
 
 Run
 ---
@@ -13,12 +16,16 @@ Optional flags
 --outdir ./output                 # default
 --embed-model text-embedding-3-small
 --chat-model gpt-4o-mini
---topk 6
+--topk 20
+--sim-threshold 0.23
+--rerank                         # enable LLM re-ranking
+--rerank-topn 8
+--rerank-threshold 1.0
 
 Requires
 --------
 - OPENAI_API_KEY in env
-- openai>=1.x, faiss-cpu, numpy
+- openai>=1.x, faiss-cpu, numpy, regex
 """
 from __future__ import annotations
 import argparse
@@ -26,6 +33,7 @@ import json
 import os
 import pickle
 import re
+import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -60,8 +68,8 @@ def _l2_normalize(x: np.ndarray) -> np.ndarray:
 def _resolve_paths(outdir: Path) -> Dict[str, Path]:
     paths = {
         "outdir": outdir,
-        "chunks_jsonl": outdir / "rechunk_noisy.jsonl",
-        "chunks_json": outdir / "rechunk_noisy.json",
+        "chunks_jsonl": outdir / "new_chunk.jsonl",
+        "chunks_json": outdir / "new_chunk.json",
         "embedding": outdir / "embedding.jsonl",
         "index": outdir / "code_index.faiss",
         "metas": outdir / "metas.pkl",
@@ -97,7 +105,7 @@ def load_chunks_auto(outdir: Path) -> List[Dict[str, Any]]:
         return _load_jsonl_or_json(p["chunks_jsonl"])
     if p["chunks_json"].exists():
         return _load_jsonl_or_json(p["chunks_json"])
-    raise FileNotFoundError("rechunk.jsonl/json not found in ./output")
+    raise FileNotFoundError("new_chunk.jsonl/json not found in ./output")
 
 
 def normalize_chunk_keys(obj: Dict[str, Any], i: int) -> Dict[str, Any]:
@@ -150,7 +158,7 @@ def ensure_built(outdir: Path, embed_model: str) -> None:
     vecs_list: List[np.ndarray] = []
     for i in range(0, len(texts), B):
         batch = texts[i:i+B]
-        resp = client.embeddings.create(model=EMBED_MODEL, input=batch)
+        resp = client.embeddings.create(model=embed_model, input=batch)  # <-- use runtime model
         arr = np.array([d.embedding for d in resp.data], dtype="float32")
         vecs_list.append(arr)
     vecs = np.vstack(vecs_list)
@@ -177,7 +185,14 @@ def ensure_built(outdir: Path, embed_model: str) -> None:
 
 # -------------- retrieval --------------
 
-def retrieve(outdir: Path, query: str, topk: int, embed_model: str) -> List[Dict[str, Any]]:
+def retrieve(outdir: Path, query: str, topk: int, embed_model: str, sim_threshold: float
+             ) -> Tuple[List[Dict[str, Any]], List[float]]:
+    """
+    Returns:
+      candidates: List[chunk dict] (length <= topk)
+      scores:     List[cosine similarities] aligned to candidates
+    Early-stops (by returning empty lists) if best score < sim_threshold.
+    """
     p = _resolve_paths(outdir)
     faiss = _try_import_faiss()
     index = faiss.read_index(str(p["index"]))
@@ -189,11 +204,85 @@ def retrieve(outdir: Path, query: str, topk: int, embed_model: str) -> List[Dict
     qvec = _l2_normalize(qvec)
 
     scores, I = index.search(qvec, topk)
-    result: List[Dict[str, Any]] = []
-    for idx in I[0]:
-        if idx == -1: continue
-        result.append(metas[int(idx)])
-    return result
+    sims = scores[0].tolist()
+    idxs = I[0].tolist()
+
+    # Early stop on similarity threshold
+    best = sims[0] if sims else -1.0
+    if (not sims) or (best < sim_threshold):
+        print(f"[EARLY-STOP] max similarity {best:.4f} < threshold {sim_threshold:.4f}. Aborting generation.")
+        return [], []
+
+    candidates: List[Dict[str, Any]] = []
+    kept_scores: List[float] = []
+    for sim, idx in zip(sims, idxs):
+        if idx == -1:
+            continue
+        candidates.append(metas[int(idx)])
+        kept_scores.append(float(sim))
+    return candidates, kept_scores
+
+
+# -------------- re-ranking (LLM) --------------
+
+def _shorten(s: str, limit: int = 1600) -> str:
+    s = s.strip()
+    return s if len(s) <= limit else (s[:limit] + " …")
+
+def llm_score_one(query: str, chunk: Dict[str, Any], chat_model: str) -> float:
+    """
+    Ask LLM to score relevance 0..3 (0:irrelevant, 1:loosely related, 2:relevant, 3:highly relevant).
+    Returns float score in [0,3].
+    """
+    client = _openai_client()
+    text_parts: List[str] = []
+    fp = chunk.get("file_path", ""); cid = chunk.get("id", "")
+    doc = chunk.get("docstring") or ""
+    code = chunk.get("content") or ""
+    text_parts.append(f"[SRC] {fp} | {cid}")
+    if doc: text_parts.append(f"[DOC] {doc}")
+    if code: text_parts.append(f"[CODE]\n{code}")
+    passage = _shorten("\n".join(text_parts), 1600)
+
+    sys = (
+        "You are a strict RAG reranker. "
+        "Given a user query and a candidate chunk, return ONLY a single integer 0,1,2,3 "
+        "representing relevance (0:irrelevant, 3:highly relevant). No explanation."
+    )
+    user = f"Query:\n{query}\n\nCandidate:\n{passage}\n\nScore (0-3) only:"
+    try:
+        resp = client.chat.completions.create(
+            model=chat_model, temperature=0, max_tokens=4,
+            messages=[{"role":"system","content":sys},{"role":"user","content":user}]
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        m = re.search(r"[0-3]", raw)
+        return float(m.group(0)) if m else 0.0
+    except Exception:
+        return 0.0
+
+def rerank_with_llm(query: str,
+                    candidates: List[Dict[str, Any]],
+                    emb_scores: List[float],
+                    chat_model: str,
+                    topn: int,
+                    threshold: float) -> List[Dict[str, Any]]:
+    """
+    Rerank candidates by LLM score desc, tie-break by embedding score desc.
+    Filters out items with LLM score < threshold.
+    """
+    scored: List[Tuple[float, float, Dict[str, Any]]] = []
+    for c, s in zip(candidates, emb_scores):
+        r = llm_score_one(query, c, chat_model)
+        scored.append((r, s, c))
+    # sort: LLM desc, then embedding desc
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    # filter by LLM threshold
+    scored = [t for t in scored if t[0] >= threshold]
+    # keep topn
+    scored = scored[:topn]
+    out = [t[2] for t in scored]
+    return out
 
 
 # -------------- prompting --------------
@@ -240,7 +329,7 @@ CLASS_RE = re.compile(r"class\s+(\w+)")
 MAPPER_NS_RE = re.compile(r"<mapper[^>]*namespace=\"([^\"]+)\"", re.IGNORECASE)
 
 
-def generate_code(system_prompt: str, context: str, task: str, chat_model: str = "gpt-4o-mini", temperature: float = 0.2, max_tokens: int = 1600) -> str:
+def generate_code(system_prompt: str, context: str, task: str, chat_model: str = "gpt-4o-mini", temperature: float = 0.2, max_tokens: int = 1400) -> str:
     client = _openai_client()
     user_prompt = (
         "## Retrieved Context\n" + context + "\n\n" +
@@ -303,26 +392,27 @@ def _mapper_name(xml_src: str) -> str:
     return "Mapper.xml"
 
 
+def ts_name(name: str) -> str:
+    return f"{datetime.datetime.now():%Y%m%d%H%M%S}_{name}"
+
 def save_files(outdir: Path, html: Optional[str], controller: Optional[str], service: Optional[str], mapper: Optional[str]) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
     if html:
-        (outdir / "NewSearch.html").write_text(html, encoding="utf-8")
+        (outdir / ts_name("NewSearch.html")).write_text(html, encoding="utf-8")
     if controller:
         cname = _class_name(controller) or "Controller"
-        (outdir / f"{cname}.java").write_text(controller, encoding="utf-8")
+        (outdir / ts_name(f"{cname}.java") ).write_text(controller, encoding="utf-8")
     if service:
         sname = _class_name(service) or "Service"
-        (outdir / f"{sname}.java").write_text(service, encoding="utf-8")
+        (outdir / ts_name(f"{sname}.java")).write_text(service, encoding="utf-8")
     if mapper:
         mname = _mapper_name(mapper)
-        (outdir / mname).write_text(mapper, encoding="utf-8")
+        (outdir / ts_name(mname)).write_text(mapper, encoding="utf-8")
 
 
 # -------------- defaults & CLI --------------
 DEFAULT_SYSTEM_PROMPT = (
     "당신은 우리 회사의 Java/Spring 전문가입니다.\n"
-    "반드시 제공된 컨텍스트의 코드/SQL만을 근거로 답하세요.\n"
-    "최종 답에는 사용한 근거의 [SRC id/file_path]를 인라인로 남기세요.\n"
     "프로젝트 아키텍처:\n"
     "- Frontend: HTML 템플릿 (search.html 스타일)\n"
     "- Controller: MainController.java /account 핸들링\n"
@@ -334,12 +424,16 @@ CHAT_MODEL = "gpt-4o-mini"
 
 
 def main():
-    ap = argparse.ArgumentParser(description="RAG (OpenAI-only) single-command")
+    ap = argparse.ArgumentParser(description="RAG (OpenAI-only) single-command with reranking & threshold")
     ap.add_argument("--query", required=True, help="What you want to generate")
     ap.add_argument("--outdir", default="../output")
     ap.add_argument("--embed-model", default=EMBED_MODEL)
     ap.add_argument("--chat-model", default=CHAT_MODEL)
-    ap.add_argument("--topk", type=int, default=6)
+    ap.add_argument("--topk", type=int, default=60, help="candidate pool size for rerank")
+    ap.add_argument("--sim-threshold", type=float, default=0.23, help="early-stop if max similarity < threshold")
+    ap.add_argument("--rerank", action="store_true", help="enable LLM-based reranking (0..3)")
+    ap.add_argument("--rerank-topn", type=int, default=6, help="keep top-n after rerank")
+    ap.add_argument("--rerank-threshold", type=float, default=1.0, help="filter items with LLM score < threshold")
     args = ap.parse_args()
 
     outdir = Path(args.outdir)
@@ -347,16 +441,37 @@ def main():
     # 1) build if needed
     ensure_built(outdir, args.embed_model)
 
-    # 2) retrieve
-    chunks = retrieve(outdir, args.query, args.topk, args.embed_model)
+    # 2) retrieve (+ early stop by sim-threshold)
+    candidates, emb_scores = retrieve(outdir, args.query, args.topk, args.embed_model, args.sim_threshold)
+    if not candidates:
+        # early-stopped (or no hits)
+        return
 
-    # 3) context
+    # 3) optional rerank
+    if args.rerank:
+        chunks = rerank_with_llm(
+            query=args.query,
+            candidates=candidates,
+            emb_scores=emb_scores,
+            chat_model=args.chat_model,
+            topn=args.rerank_topn,
+            threshold=args.rerank_threshold,
+        )
+        if not chunks:
+            print(f"[EARLY-STOP] All candidates filtered by rerank-threshold {args.rerank_threshold}. Aborting generation.")
+            return
+    else:
+        # no rerank: just keep min(len, rerank-topn) by embedding sim
+        keep_n = min(len(candidates), args.rerank_topn)
+        chunks = candidates[:keep_n]
+
+    # 4) build context
     context = build_context(chunks)
 
-    # 4) generate
+    # 5) generate
     output = generate_code(DEFAULT_SYSTEM_PROMPT, context, args.query, chat_model=args.chat_model)
 
-    # 5) save into ./output
+    # 6) save into ./output
     html, ctrl, svc, mapper = extract_blocks(output)
     save_files(outdir, html, ctrl, svc, mapper)
 
