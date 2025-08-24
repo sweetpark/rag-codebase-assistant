@@ -339,7 +339,7 @@ def main():
     ap.add_argument("--outdir", default="../output")
     ap.add_argument("--embed-model", default=EMBED_MODEL)
     ap.add_argument("--chat-model", default=CHAT_MODEL)
-    ap.add_argument("--topk", type=int, default=6)
+    ap.add_argument("--topk", type=int, default=20)
     args = ap.parse_args()
 
     outdir = Path(args.outdir)

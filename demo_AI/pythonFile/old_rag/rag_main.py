@@ -15,7 +15,7 @@ def load_index_and_metas(index_path, metas_path):
 # Retrieve top_k chunks for query
 def retrieve(index, metas, query, top_k=5):
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    resp = client.embeddings.create(model="text-embedding-ada-002", input=query)
+    resp = client.embeddings.create(model="text-embedding-3-small", input=query)
     qvec = np.array(resp.data[0].embedding, dtype='float32').reshape(1, -1)
     _, I = index.search(qvec, top_k)
     return [metas[i] for i in I[0]]
