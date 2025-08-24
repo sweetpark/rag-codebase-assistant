@@ -33,7 +33,7 @@ public class ParserV3 {
         Map<String, String> cli = parseArgs(args);
         Path root = Paths.get(cli.getOrDefault("--root", "./src/main"));
         System.out.println(root.toString());
-        Path out  = Paths.get(cli.getOrDefault("--out", "rag/chunk.jsonl"));
+        Path out  = Paths.get(cli.getOrDefault("--out", "RESULT_PYTHON/3_THIRD/chunk.jsonl"));
         Files.createDirectories(out.getParent());
 
         Rules rules = Rules.defaultRules();

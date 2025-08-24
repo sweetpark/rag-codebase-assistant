@@ -27,7 +27,7 @@ public class ParserV2 {
         Path javaRoot = Paths.get("./src/main/java");
         Path htmlRoot = Paths.get("./src/main/resources/static");
         Path xmlRoot  = Paths.get("./src/main/resources/mapper");
-        Path output   = Paths.get("./chunk.jsonl");
+        Path output   = Paths.get("RESULT_PYTHON/2_SECOND/chunk.jsonl");
 
         try (BufferedWriter writer = Files.newBufferedWriter(output)) {
             // Java 파일 파싱

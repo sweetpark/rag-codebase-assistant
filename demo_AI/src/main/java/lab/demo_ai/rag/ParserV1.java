@@ -18,21 +18,19 @@ import java.io.FileWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
-import java.util.stream.Collectors;
 
-public class DocumentProcessor2 {
+public class ParserV1 {
     private static final ObjectMapper mapper = new ObjectMapper();
     private static BufferedWriter writer;
 
     public static void main(String[] args) throws Exception {
 
         String rootDir = "src/main";
-        String outputFile = "output/chunk.jsonl";
+        String outputFile = "RESULT_PYTHON/1_FIRST/chunk.jsonl";
         writer = new BufferedWriter(new FileWriter(outputFile, false));
         Files.walk(Paths.get(rootDir))
                 .filter(Files::isRegularFile)
-                .forEach(DocumentProcessor2::processFile);
+                .forEach(ParserV1::processFile);
         writer.close();
         System.out.println("Document preprocessing complete: " + outputFile);
     }
